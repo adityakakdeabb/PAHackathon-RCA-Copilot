@@ -3,10 +3,7 @@ Maintenance Agent
 Queries Azure Cognitive Search for maintenance logs and generates RCA insights
 """
 import logging
-import json
-from typing import Dict, Any, List, Optional
-from azure.core.credentials import AzureKeyCredential
-from azure.search.documents import SearchClient
+from typing import Dict, Any, List
 import config
 from agents.base_agent import BaseAgent, AgentResponse
 
@@ -15,187 +12,132 @@ logger = logging.getLogger(__name__)
 
 
 class MaintenanceAgent(BaseAgent):
-    """Agent for querying maintenance logs and generating insights"""
+    """Agent for querying maintenance logs using Azure Cognitive Search"""
     
     def __init__(self):
         super().__init__(
             name="Maintenance Agent",
-            description="Searches maintenance logs to identify repair history, component failures, and preventive maintenance patterns"
+            description="Searches maintenance logs to identify repair history, component failures, and preventive maintenance patterns",
+            search_index=config.AZURE_SEARCH_INDEX_MAINTENANCE
         )
-        self.search_client = self._initialize_search_client()
-        # Fallback to local data if Azure Search is not configured
-        self.use_local_data = not config.AZURE_SEARCH_ENDPOINT
-        if self.use_local_data:
-            self.maintenance_data = self._load_local_data()
-    
-    def _initialize_search_client(self) -> Optional[SearchClient]:
-        """Initialize Azure Cognitive Search client"""
-        if not config.AZURE_SEARCH_ENDPOINT or not config.AZURE_SEARCH_API_KEY:
-            logger.warning("Azure Search not configured, using local data fallback")
-            return None
-        
-        try:
-            return SearchClient(
-                endpoint=config.AZURE_SEARCH_ENDPOINT,
-                index_name=config.AZURE_SEARCH_INDEX_MAINTENANCE,
-                credential=AzureKeyCredential(config.AZURE_SEARCH_API_KEY)
-            )
-        except Exception as e:
-            logger.error(f"Error initializing Azure Search client: {e}", exc_info=True)
-            return None
-    
-    def _load_local_data(self) -> List[Dict[str, Any]]:
-        """Load maintenance logs from local JSON as fallback"""
-        try:
-            with open(config.MAINTENANCE_LOGS_PATH, 'r') as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error(f"Error loading maintenance logs: {e}", exc_info=True)
-            return []
+        logger.info(f"✓ MaintenanceAgent initialized with Azure Search index: {config.AZURE_SEARCH_INDEX_MAINTENANCE}")
     
     def process_query(self, query: str, **kwargs) -> Dict[str, Any]:
         """
-        Process maintenance log query
+        Process maintenance log query using Azure Cognitive Search semantic search
         
         Args:
             query: User query about maintenance logs
             **kwargs: Additional parameters (top_k, filters, etc.)
             
         Returns:
-            AgentResponse with relevant maintenance logs
+            AgentResponse with relevant maintenance logs from Azure Search
         """
         try:
-            top_k = kwargs.get('top_k', config.TOP_K_DOCUMENTS)
+            logger.info(f"→ Processing maintenance query: {query}")
             
-            if self.use_local_data or self.search_client is None:
-                # Use local data search
-                documents = self._search_local_data(query, top_k)
-            else:
-                # Use Azure Cognitive Search
-                documents = self._search_azure(query, top_k)
+            # Perform semantic search on Azure Cognitive Search
+            top_k = kwargs.get('top_k', config.TOP_K_DOCUMENTS)
+            documents = self.semantic_search(query, top=top_k)
+            
+            if not documents:
+                logger.warning("⚠ No maintenance logs found via semantic search")
+                return AgentResponse(
+                    agent_name=self.name,
+                    success=True,
+                    data={
+                        "summary": "No maintenance logs found matching the query",
+                        "documents": [],
+                        "count": 0
+                    },
+                    metadata={"query": query, "source": "azure_search"}
+                ).to_dict()
+            
+            # Analyze the retrieved documents
+            analysis = self._analyze_search_results(documents, query)
+            
+            logger.info(f"✓ Maintenance log analysis complete: {len(documents)} documents processed")
             
             return AgentResponse(
                 agent_name=self.name,
                 success=True,
-                data={
-                    "documents": documents,
-                    "query": query,
-                    "source": "local" if self.use_local_data else "azure_search"
-                },
+                data=analysis,
                 metadata={
-                    "document_count": len(documents),
-                    "top_k": top_k
+                    "documents_retrieved": len(documents),
+                    "query": query,
+                    "source": "azure_search"
                 }
             ).to_dict()
             
         except Exception as e:
+            logger.error(f"Error in MaintenanceAgent: {str(e)}", exc_info=True)
             return AgentResponse(
                 agent_name=self.name,
                 success=False,
                 error=str(e)
             ).to_dict()
     
-    def _search_azure(self, query: str, top_k: int) -> List[Dict[str, Any]]:
-        """Search Azure Cognitive Search for relevant documents"""
-        results = []
+    def _analyze_search_results(self, documents: List[Dict[str, Any]], query: str) -> Dict[str, Any]:
+        """Analyze maintenance logs retrieved from Azure Search"""
         
-        try:
-            search_results = self.search_client.search(
-                search_text=query,
-                top=top_k,
-                select=["log_id", "machine_id", "date", "maintenance_type",
-                       "components_checked", "actions_taken", "technician",
-                       "downtime_hours", "remarks"]
-            )
+        # Extract maintenance log information from documents
+        logs = []
+        maintenance_types = {}
+        machines = set()
+        components = set()
+        
+        for doc in documents:
+            # Extract fields (adjust based on your index schema)
+            log_id = doc.get('log_id') or doc.get('logId') or doc.get('LogID')
+            machine_id = doc.get('machine_id') or doc.get('machineId') or doc.get('MachineID')
+            maintenance_type = doc.get('maintenance_type') or doc.get('maintenanceType') or doc.get('MaintenanceType')
+            actions_taken = doc.get('actions_taken') or doc.get('actionsTaken') or doc.get('ActionsTaken')
+            components_checked = doc.get('components_checked') or doc.get('componentsChecked') or doc.get('Components')
             
-            for result in search_results:
-                results.append({
-                    "log_id": result.get("log_id"),
-                    "machine_id": result.get("machine_id"),
-                    "date": result.get("date"),
-                    "maintenance_type": result.get("maintenance_type"),
-                    "components_checked": result.get("components_checked"),
-                    "actions_taken": result.get("actions_taken"),
-                    "technician": result.get("technician"),
-                    "downtime_hours": result.get("downtime_hours"),
-                    "remarks": result.get("remarks"),
-                    "search_score": result.get("@search.score", 0)
-                })
-        except Exception as e:
-            logger.error(f"Error searching Azure: {e}", exc_info=True)
-            # Fallback to local search
-            return self._search_local_data(query, top_k)
-        
-        return results
-    
-    def _search_local_data(self, query: str, top_k: int) -> List[Dict[str, Any]]:
-        """Search local maintenance logs using keyword matching"""
-        if not self.maintenance_data:
-            return []
-        
-        query_lower = query.lower()
-        
-        # Simple keyword-based scoring
-        scored_logs = []
-        for log in self.maintenance_data:
-            score = 0
+            if machine_id:
+                machines.add(machine_id)
+            if maintenance_type:
+                maintenance_types[maintenance_type] = maintenance_types.get(maintenance_type, 0) + 1
+            if components_checked:
+                if isinstance(components_checked, list):
+                    components.update(components_checked)
+                else:
+                    components.add(str(components_checked))
             
-            # Convert log to searchable text
-            text = f"{log.get('machine_id', '')} {log.get('maintenance_type', '')} "
-            text += f"{' '.join(log.get('components_checked', []))} "
-            text += f"{log.get('actions_taken', '')} {log.get('remarks', '')}"
-            text = text.lower()
-            
-            # Count keyword matches
-            keywords = query_lower.split()
-            for keyword in keywords:
-                if keyword in text:
-                    score += text.count(keyword)
-            
-            # Boost emergency and corrective maintenance
-            if log.get('maintenance_type') in ['Emergency', 'Corrective']:
-                score += 2
-            
-            # Boost high downtime
-            if log.get('downtime_hours', 0) > 5:
-                score += 1
-            
-            if score > 0:
-                log_copy = log.copy()
-                log_copy['relevance_score'] = score
-                scored_logs.append(log_copy)
+            # Add to logs list with relevant fields
+            log_info = {
+                "log_id": log_id,
+                "machine_id": machine_id,
+                "maintenance_type": maintenance_type,
+                "actions_taken": actions_taken,
+                "components_checked": components_checked,
+                "search_score": doc.get('search_score'),
+                "reranker_score": doc.get('reranker_score'),
+                "timestamp": doc.get('timestamp') or doc.get('Timestamp') or doc.get('date')
+            }
+            logs.append(log_info)
         
-        # Sort by score and return top-k
-        scored_logs.sort(key=lambda x: x['relevance_score'], reverse=True)
-        return scored_logs[:top_k]
-    
-    def get_maintenance_history(self, machine_id: str, limit: int = 10) -> List[Dict[str, Any]]:
-        """Get maintenance history for a specific machine"""
-        if self.use_local_data:
-            machine_logs = [
-                log for log in self.maintenance_data 
-                if log.get('machine_id') == machine_id
-            ]
-            return machine_logs[:limit]
-        else:
-            # Use Azure Search with filter
-            filter_expr = f"machine_id eq '{machine_id}'"
-            results = self.search_client.search(
-                search_text="*",
-                filter=filter_expr,
-                top=limit
-            )
-            return [dict(r) for r in results]
-    
-    def get_component_failure_patterns(self) -> Dict[str, int]:
-        """Analyze component failure patterns across all maintenance logs"""
-        if not self.use_local_data or not self.maintenance_data:
-            return {}
+        # Generate statistics
+        stats = {
+            "total_logs": len(documents),
+            "unique_machines": len(machines),
+            "maintenance_types": list(maintenance_types.keys()),
+            "type_distribution": maintenance_types,
+            "components_affected": list(components)
+        }
         
-        component_counts = {}
-        for log in self.maintenance_data:
-            if log.get('maintenance_type') in ['Corrective', 'Emergency']:
-                for component in log.get('components_checked', []):
-                    component_counts[component] = component_counts.get(component, 0) + 1
+        # Summary
+        summary = f"Found {len(documents)} relevant maintenance log(s)"
+        if machines:
+            summary += f" across {len(machines)} machine(s)"
+        if maintenance_types:
+            emergency = maintenance_types.get('Emergency', 0) + maintenance_types.get('Corrective', 0)
+            if emergency > 0:
+                summary += f" with {emergency} emergency/corrective maintenance(s)"
         
-        return dict(sorted(component_counts.items(), key=lambda x: x[1], reverse=True))
+        return {
+            "summary": summary,
+            "statistics": stats,
+            "logs": logs[:20],  # Return top 20 most relevant
+            "all_documents": documents  # Full documents for LLM context
+        }
