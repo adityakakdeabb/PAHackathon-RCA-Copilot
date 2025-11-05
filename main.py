@@ -52,6 +52,25 @@ class ResultResponse(BaseModel):
     timestamp: Optional[str] = None
 
 
+class RCARequest(BaseModel):
+    """Request model for direct RCA generation from alert description"""
+    alert_description: str
+    alert_id: Optional[str] = None
+    machine_id: Optional[str] = None
+    alert_type: Optional[str] = None
+    severity: Optional[str] = None
+
+
+class RCAResponse(BaseModel):
+    """Response model for RCA generation"""
+    success: bool
+    alert_description: str
+    rca_report: Optional[str] = None
+    error: Optional[str] = None
+    timestamp: str
+    routing_decision: Optional[Dict[str, bool]] = None
+
+
 def check_configuration():
     """Check if required configuration is set"""
     import config
@@ -126,8 +145,10 @@ async def root():
         "version": "1.0.0",
         "status": "running",
         "endpoints": {
-            "ask": "/ask - POST your RCA query",
+            "ask": "/ask - POST your RCA query (queued processing)",
             "result": "/result/{query_id} - GET the result of your query",
+            "get_rca": "/get_rca - POST alert description for immediate RCA generation",
+            "results": "/results - GET list of all queries",
             "health": "/health - Check API health"
         }
     }
@@ -312,6 +333,108 @@ async def list_results():
         raise HTTPException(
             status_code=500,
             detail=f"Error listing results: {str(e)}"
+        )
+
+
+@app.post("/get_rca", response_model=RCAResponse)
+async def get_rca(request: RCARequest):
+    """
+    Generate RCA report directly from an alert description
+    
+    This endpoint processes an alert description and generates a comprehensive 
+    Root Cause Analysis by consulting relevant agents and documents.
+    
+    Args:
+        request: RCARequest containing alert_description and optional metadata
+        
+    Returns:
+        RCAResponse with the generated RCA report
+        
+    Example:
+        POST /get_rca
+        {
+            "alert_description": "Sudden temperature spike detected in compressor chamber exceeding 90°C",
+            "machine_id": "MCH_012",
+            "alert_type": "High Temperature",
+            "severity": "Critical"
+        }
+    """
+    try:
+        logger.info("=" * 70)
+        logger.info(f"Received RCA request for alert description")
+        if request.machine_id:
+            logger.info(f"Machine ID: {request.machine_id}")
+        if request.alert_type:
+            logger.info(f"Alert Type: {request.alert_type}")
+        logger.info(f"Description: {request.alert_description}")
+        logger.info("=" * 70)
+        
+        # Import MasterAgent here to avoid startup issues
+        from agents.master_agent import MasterAgent
+        
+        # Initialize Master Agent
+        master_agent = MasterAgent()
+        
+        # Build a comprehensive query from the alert information
+        query_parts = []
+        
+        if request.alert_type:
+            query_parts.append(f"Alert Type: {request.alert_type}")
+        
+        if request.machine_id:
+            query_parts.append(f"Machine: {request.machine_id}")
+        
+        if request.severity:
+            query_parts.append(f"Severity: {request.severity}")
+        
+        query_parts.append(f"Issue Description: {request.alert_description}")
+        query_parts.append("Please provide a detailed root cause analysis with:")
+        query_parts.append("1. Analysis of sensor data and anomalies")
+        query_parts.append("2. Review of operator reports and observations")
+        query_parts.append("3. Examination of maintenance history")
+        query_parts.append("4. Identified root causes")
+        query_parts.append("5. Recommended mitigation and preventive actions")
+        
+        query = "\n".join(query_parts)
+        
+        logger.info(f"Constructed query for RCA analysis")
+        
+        # Process the query through the Master Agent
+        result = master_agent.process_query(query)
+        
+        if result.get("success"):
+            logger.info("✓ RCA generated successfully")
+            
+            return RCAResponse(
+                success=True,
+                alert_description=request.alert_description,
+                rca_report=result.get("rca_report"),
+                error=None,
+                timestamp=result.get("timestamp"),
+                routing_decision=result.get("routing_decision")
+            )
+        else:
+            logger.error(f"RCA generation failed: {result.get('error')}")
+            
+            return RCAResponse(
+                success=False,
+                alert_description=request.alert_description,
+                rca_report=None,
+                error=result.get("error", "Unknown error occurred"),
+                timestamp=result.get("timestamp"),
+                routing_decision=None
+            )
+        
+    except Exception as e:
+        logger.error(f"Error in get_rca endpoint: {str(e)}", exc_info=True)
+        
+        return RCAResponse(
+            success=False,
+            alert_description=request.alert_description,
+            rca_report=None,
+            error=str(e),
+            timestamp=datetime.now().isoformat(),
+            routing_decision=None
         )
 
 

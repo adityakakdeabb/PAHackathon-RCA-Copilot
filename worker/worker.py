@@ -2,6 +2,15 @@
 RCA Copilot Worker - Background Query Processor
 Processes RCA queries from the queue and stores results
 """
+import sys
+import os
+from pathlib import Path
+
+# Add parent directory to Python path so we can import from agents, config, etc.
+parent_dir = str(Path(__file__).parent.parent)
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
 import logging
 import time
 import json
