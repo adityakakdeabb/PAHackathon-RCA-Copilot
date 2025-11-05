@@ -6,15 +6,18 @@ from typing import Dict, Any, List
 from langchain_openai import AzureChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
 from langchain_core.messages import HumanMessage, SystemMessage
+from jinja2 import Environment, FileSystemLoader, select_autoescape
+import os
 import config
 
 
 class RCAChain:
-    """LangChain-based RCA report generation"""
+    """LangChain-based RCA report generation with Jinja2 templates"""
     
     def __init__(self):
         self.llm = self._initialize_llm()
-        self.rca_prompt = self._create_rca_prompt()
+        self.jinja_env = self._initialize_jinja_environment()
+        self.rca_template = self._load_rca_template()
     
     def _initialize_llm(self) -> AzureChatOpenAI:
         """Initialize Azure OpenAI LLM for RCA generation"""
@@ -24,90 +27,76 @@ class RCAChain:
             api_version=config.AZURE_OPENAI_API_VERSION,
             deployment_name=config.RCA_GENERATION_MODEL,
             temperature=0.7,  # Slightly creative for recommendations
-            max_tokens=300  # Reduced for concise responses
+            max_tokens=400  # Increased for bullet-point format with proper spacing
         )
     
-    def _create_rca_prompt(self) -> ChatPromptTemplate:
-        """Create prompt template for RCA generation"""
-        system_template = """You are an expert industrial engineer specializing in Root Cause Analysis (RCA) for manufacturing equipment failures. 
-
-Your task is to provide a CONCISE root cause analysis in exactly 3-4 sentences:
-1. First sentence: State the primary root cause
-2. Second sentence: Mention key contributing factors or evidence
-3. Third sentence: Provide the most critical immediate action
-4. Fourth sentence (optional): Brief preventive recommendation
-
-Be specific, technical, and direct. No headers, bullet points, or lengthy explanations."""
-
-        human_template = """## User Query
-{query}
-
-## Sensor Data Analysis
-{sensor_data}
-
-## Operator Reports
-{operator_reports}
-
-## Maintenance Logs
-{maintenance_logs}
-
-## Additional Context
-{context}
-
-Provide a concise 3-4 sentence Root Cause Analysis based on the above information."""
-
-        system_message = SystemMessagePromptTemplate.from_template(system_template)
-        human_message = HumanMessagePromptTemplate.from_template(human_template)
-        
-        return ChatPromptTemplate.from_messages([system_message, human_message])
+    def _initialize_jinja_environment(self) -> Environment:
+        """Initialize Jinja2 environment for template loading"""
+        template_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'prompts')
+        return Environment(
+            loader=FileSystemLoader(template_dir),
+            autoescape=select_autoescape(['html', 'xml']),
+            trim_blocks=True,
+            lstrip_blocks=True
+        )
+    
+    def _load_rca_template(self):
+        """Load RCA generator Jinja2 template"""
+        return self.jinja_env.get_template('rca_generator.jinja2')
     
     def generate_rca_report(
         self,
         query: str,
-        sensor_data: Dict[str, Any] = None,
-        operator_reports: List[Dict[str, Any]] = None,
-        maintenance_logs: List[Dict[str, Any]] = None,
+        sensor_analysis: str = "",
+        operator_analysis: str = "",
+        maintenance_analysis: str = "",
+        sensor_documents: List[Dict[str, Any]] = None,
+        operator_documents: List[Dict[str, Any]] = None,
+        maintenance_documents: List[Dict[str, Any]] = None,
         context: str = ""
     ) -> Dict[str, Any]:
         """
-        Generate RCA report using LangChain
+        Generate RCA report using Jinja2 template and agent findings
         
         Args:
             query: User's original query
-            sensor_data: Sensor data analysis from Sensor Agent
-            operator_reports: Documents from Operator Agent
-            maintenance_logs: Documents from Maintenance Agent
+            sensor_analysis: Analysis text from Sensor Agent
+            operator_analysis: Analysis text from Operator Agent
+            maintenance_analysis: Analysis text from Maintenance Agent
+            sensor_documents: Raw documents from Sensor Agent
+            operator_documents: Raw documents from Operator Agent
+            maintenance_documents: Raw documents from Maintenance Agent
             context: Additional context
             
         Returns:
             Dictionary with RCA report
         """
         try:
-            # Format the input data
-            sensor_summary = self._format_sensor_data(sensor_data)
-            operator_summary = self._format_operator_reports(operator_reports)
-            maintenance_summary = self._format_maintenance_logs(maintenance_logs)
-            
-            # Generate the prompt
-            prompt_value = self.rca_prompt.format_prompt(
+            # Render the Jinja2 template with agent findings and documents
+            rendered_prompt = self.rca_template.render(
                 query=query,
-                sensor_data=sensor_summary,
-                operator_reports=operator_summary,
-                maintenance_logs=maintenance_summary,
-                context=context
+                sensor_analysis=sensor_analysis or "No sensor analysis available.",
+                operator_analysis=operator_analysis or "No operator analysis available.",
+                maintenance_analysis=maintenance_analysis or "No maintenance analysis available.",
+                sensor_documents=sensor_documents or [],
+                operator_documents=operator_documents or [],
+                maintenance_documents=maintenance_documents or []
             )
             
-            # Generate RCA report
-            response = self.llm.invoke(prompt_value.to_messages())
+            # Generate RCA report using the rendered prompt
+            response = self.llm.invoke([HumanMessage(content=rendered_prompt)])
             
             return {
                 "success": True,
                 "rca_report": response.content,
                 "query": query,
                 "data_sources": {
-                    "sensor_data": sensor_data is not None,
-                    "operator_reports": operator_reports is not None and len(operator_reports) > 0,
-                    "maintenance_logs": maintenance_logs is not None and len(maintenance_logs) > 0
+                    "sensor_analysis": bool(sensor_analysis),
+                    "operator_analysis": bool(operator_analysis),
+                    "maintenance_analysis": bool(maintenance_analysis),
+                    "sensor_documents": sensor_documents is not None and len(sensor_documents) > 0,
+                    "operator_documents": operator_documents is not None and len(operator_documents) > 0,
+                    "maintenance_documents": maintenance_documents is not None and len(maintenance_documents) > 0
                 }
             }
             
@@ -117,77 +106,6 @@ Provide a concise 3-4 sentence Root Cause Analysis based on the above informatio
                 "error": str(e),
                 "query": query
             }
-    
-    def _format_sensor_data(self, sensor_data: Dict[str, Any]) -> str:
-        """Format sensor data for prompt"""
-        if not sensor_data:
-            return "No sensor data available."
-        
-        formatted = "### Sensor Data Summary\n\n"
-        
-        if 'statistics' in sensor_data:
-            stats = sensor_data['statistics']
-            formatted += f"- Total Records: {stats.get('total_records', 0)}\n"
-            formatted += f"- Machines Affected: {stats.get('machines_affected', 0)}\n"
-            formatted += f"- Critical Alerts: {stats.get('critical_alerts', 0)}\n"
-            formatted += f"- Warning Alerts: {stats.get('warning_alerts', 0)}\n"
-            formatted += f"- Status Distribution: {stats.get('status_distribution', {})}\n\n"
-        
-        if 'anomaly_patterns' in sensor_data and sensor_data['anomaly_patterns']:
-            formatted += "**Anomaly Patterns:**\n"
-            for pattern in sensor_data['anomaly_patterns'][:5]:
-                formatted += f"- {pattern['machine_id']} ({pattern['sensor_type']}): "
-                formatted += f"Avg={pattern['avg_value']}, Max={pattern['max_value']}, "
-                formatted += f"Alerts={pattern['alert_count']}\n"
-            formatted += "\n"
-        
-        if 'recent_critical_events' in sensor_data and sensor_data['recent_critical_events']:
-            formatted += "**Recent Critical Events:**\n"
-            for event in sensor_data['recent_critical_events'][:5]:
-                formatted += f"- {event['timestamp']}: {event['machine_id']} - "
-                formatted += f"{event['sensor_type']}={event['sensor_value']}{event['unit']} "
-                formatted += f"({event['status']})\n"
-        
-        return formatted
-    
-    def _format_operator_reports(self, operator_reports: List[Dict[str, Any]]) -> str:
-        """Format operator reports for prompt"""
-        if not operator_reports or len(operator_reports) == 0:
-            return "No operator reports available."
-        
-        formatted = "### Operator Reports\n\n"
-        
-        for i, report in enumerate(operator_reports[:5], 1):
-            formatted += f"**Report #{i}** (ID: {report.get('report_id', 'N/A')})\n"
-            formatted += f"- Machine: {report.get('machine_id', 'N/A')}\n"
-            formatted += f"- Date: {report.get('date', 'N/A')}\n"
-            formatted += f"- Operator: {report.get('operator_name', 'N/A')} ({report.get('shift', 'N/A')} shift)\n"
-            formatted += f"- Severity: {report.get('severity', 'N/A')}\n"
-            formatted += f"- Status: {report.get('status', 'N/A')}\n"
-            formatted += f"- Incident: {report.get('incident_description', 'N/A')}\n"
-            formatted += f"- Action Taken: {report.get('initial_action', 'N/A')}\n\n"
-        
-        return formatted
-    
-    def _format_maintenance_logs(self, maintenance_logs: List[Dict[str, Any]]) -> str:
-        """Format maintenance logs for prompt"""
-        if not maintenance_logs or len(maintenance_logs) == 0:
-            return "No maintenance logs available."
-        
-        formatted = "### Maintenance Logs\n\n"
-        
-        for i, log in enumerate(maintenance_logs[:5], 1):
-            formatted += f"**Log #{i}** (ID: {log.get('log_id', 'N/A')})\n"
-            formatted += f"- Machine: {log.get('machine_id', 'N/A')}\n"
-            formatted += f"- Date: {log.get('date', 'N/A')}\n"
-            formatted += f"- Type: {log.get('maintenance_type', 'N/A')}\n"
-            formatted += f"- Technician: {log.get('technician', 'N/A')}\n"
-            formatted += f"- Downtime: {log.get('downtime_hours', 0)} hours\n"
-            formatted += f"- Components: {', '.join(log.get('components_checked', []))}\n"
-            formatted += f"- Actions: {log.get('actions_taken', 'N/A')}\n"
-            formatted += f"- Remarks: {log.get('remarks', 'N/A')}\n\n"
-        
-        return formatted
     
     def generate_mitigation_steps(
         self,

@@ -18,7 +18,8 @@ class MaintenanceAgent(BaseAgent):
         super().__init__(
             name="Maintenance Agent",
             description="Searches maintenance logs to identify repair history, component failures, and preventive maintenance patterns",
-            search_index=config.AZURE_SEARCH_INDEX_MAINTENANCE
+            search_index=config.AZURE_SEARCH_INDEX_MAINTENANCE,
+            template_name="maintenance_agent.jinja2"
         )
         logger.info(f"✓ MaintenanceAgent initialized with Azure Search index: {config.AZURE_SEARCH_INDEX_MAINTENANCE}")
     
@@ -46,24 +47,31 @@ class MaintenanceAgent(BaseAgent):
                     agent_name=self.name,
                     success=True,
                     data={
+                        "analysis": "No maintenance logs found matching the query",
                         "summary": "No maintenance logs found matching the query",
                         "documents": [],
+                        "all_documents": [],
                         "count": 0
                     },
-                    metadata={"query": query, "source": "azure_search"}
+                    metadata={"query": query, "source": "azure_search", "document_count": 0}
                 ).to_dict()
             
-            # Analyze the retrieved documents
-            analysis = self._analyze_search_results(documents, query)
+            # Generate analysis using Jinja2 template and LLM
+            analysis_text = self.generate_analysis(query, documents)
+            
+            # Analyze the retrieved documents for statistics
+            stats_analysis = self._analyze_search_results(documents, query)
+            stats_analysis["analysis"] = analysis_text
             
             logger.info(f"✓ Maintenance log analysis complete: {len(documents)} documents processed")
             
             return AgentResponse(
                 agent_name=self.name,
                 success=True,
-                data=analysis,
+                data=stats_analysis,
                 metadata={
                     "documents_retrieved": len(documents),
+                    "document_count": len(documents),
                     "query": query,
                     "source": "azure_search"
                 }
@@ -139,5 +147,6 @@ class MaintenanceAgent(BaseAgent):
             "summary": summary,
             "statistics": stats,
             "logs": logs[:20],  # Return top 20 most relevant
+            "documents": documents,  # For master agent compatibility
             "all_documents": documents  # Full documents for LLM context
         }

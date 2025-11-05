@@ -225,7 +225,7 @@ Your response:"""
         agent_responses: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Generate comprehensive RCA report using LangChain
+        Generate comprehensive RCA report using LangChain with agent findings
         
         Args:
             query: Original user query
@@ -234,32 +234,50 @@ Your response:"""
         Returns:
             RCA report with mitigation steps
         """
-        logger.info("→ Generating RCA Report using LLM Chain...")
+        logger.info("→ Generating RCA Report using LLM Chain with agent findings...")
         
-        # Extract data from agent responses
-        sensor_data = None
-        operator_reports = None
-        maintenance_logs = None
+        # Extract analysis text and documents from agent responses
+        sensor_analysis = ""
+        sensor_documents = []
+        operator_analysis = ""
+        operator_documents = []
+        maintenance_analysis = ""
+        maintenance_documents = []
         
+        # Extract Sensor Agent data
         if "sensor_data" in agent_responses and agent_responses["sensor_data"].get("success"):
-            sensor_data = agent_responses["sensor_data"].get("data")
+            sensor_data = agent_responses["sensor_data"].get("data", {})
+            sensor_analysis = sensor_data.get("analysis", "")
+            sensor_documents = sensor_data.get("all_documents", [])
+            logger.info(f"  Sensor: {len(sensor_documents)} documents, analysis length: {len(sensor_analysis)} chars")
         
+        # Extract Operator Agent data
         if "operator_reports" in agent_responses and agent_responses["operator_reports"].get("success"):
-            operator_reports = agent_responses["operator_reports"].get("data", {}).get("documents", [])
+            operator_data = agent_responses["operator_reports"].get("data", {})
+            operator_analysis = operator_data.get("analysis", "")
+            operator_documents = operator_data.get("documents", [])
+            logger.info(f"  Operator: {len(operator_documents)} documents, analysis length: {len(operator_analysis)} chars")
         
+        # Extract Maintenance Agent data
         if "maintenance_logs" in agent_responses and agent_responses["maintenance_logs"].get("success"):
-            maintenance_logs = agent_responses["maintenance_logs"].get("data", {}).get("documents", [])
+            maintenance_data = agent_responses["maintenance_logs"].get("data", {})
+            maintenance_analysis = maintenance_data.get("analysis", "")
+            maintenance_documents = maintenance_data.get("documents", [])
+            logger.info(f"  Maintenance: {len(maintenance_documents)} documents, analysis length: {len(maintenance_analysis)} chars")
         
-        # Generate RCA report
+        # Generate RCA report with agent analyses and documents
         rca_report = self.rca_chain.generate_rca_report(
             query=query,
-            sensor_data=sensor_data,
-            operator_reports=operator_reports,
-            maintenance_logs=maintenance_logs,
+            sensor_analysis=sensor_analysis,
+            operator_analysis=operator_analysis,
+            maintenance_analysis=maintenance_analysis,
+            sensor_documents=sensor_documents,
+            operator_documents=operator_documents,
+            maintenance_documents=maintenance_documents,
             context=""
         )
         
-        logger.info("✓ RCA Report generated")
+        logger.info("✓ RCA Report generated with agent findings")
         
         return rca_report
     

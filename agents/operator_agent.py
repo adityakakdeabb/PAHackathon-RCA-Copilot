@@ -15,7 +15,8 @@ class OperatorAgent(BaseAgent):
         super().__init__(
             name="Operator Agent",
             description="Searches operator incident reports to identify patterns, severity levels, and operational issues",
-            search_index=config.AZURE_SEARCH_INDEX_OPERATOR
+            search_index=config.AZURE_SEARCH_INDEX_OPERATOR,
+            template_name="operator_agent.jinja2"
         )
         logger.info(f"Operator Agent initialized with Azure Search index")
     
@@ -29,16 +30,28 @@ class OperatorAgent(BaseAgent):
                 return AgentResponse(
                     agent_name=self.name,
                     success=True,
-                    data={"summary": "No operator reports found", "documents": [], "count": 0},
-                    metadata={"query": query}
+                    data={
+                        "analysis": "No operator reports found",
+                        "summary": "No operator reports found", 
+                        "documents": [], 
+                        "all_documents": [],
+                        "count": 0
+                    },
+                    metadata={"query": query, "document_count": 0}
                 ).to_dict()
             
-            analysis = self._analyze_search_results(documents, query)
+            # Generate analysis using Jinja2 template and LLM
+            analysis_text = self.generate_analysis(query, documents)
+            
+            # Get statistical analysis
+            stats_analysis = self._analyze_search_results(documents, query)
+            stats_analysis["analysis"] = analysis_text
+            
             return AgentResponse(
                 agent_name=self.name,
                 success=True,
-                data=analysis,
-                metadata={"documents_retrieved": len(documents), "query": query}
+                data=stats_analysis,
+                metadata={"documents_retrieved": len(documents), "document_count": len(documents), "query": query}
             ).to_dict()
         except Exception as e:
             logger.error(f"Error: {e}", exc_info=True)
@@ -56,5 +69,6 @@ class OperatorAgent(BaseAgent):
         return {
             "summary": f"Found {len(documents)} operator reports",
             "reports": reports[:20],
+            "documents": documents,
             "all_documents": documents
         }

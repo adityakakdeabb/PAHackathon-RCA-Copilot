@@ -19,7 +19,8 @@ class SensorDataAgent(BaseAgent):
         super().__init__(
             name="Sensor Data Agent",
             description="Analyzes time-series sensor data including temperature, vibration, and pressure readings to identify anomalies and trends",
-            search_index=config.AZURE_SEARCH_INDEX_SENSOR
+            search_index=config.AZURE_SEARCH_INDEX_SENSOR,
+            template_name="sensor_agent.jinja2"
         )
         logger.info(f"✓ SensorDataAgent initialized with Azure Search index: {config.AZURE_SEARCH_INDEX_SENSOR}")
     
@@ -47,24 +48,33 @@ class SensorDataAgent(BaseAgent):
                     agent_name=self.name,
                     success=True,
                     data={
+                        "analysis": "No sensor data found matching the query",
                         "summary": "No sensor data found matching the query",
                         "documents": [],
+                        "all_documents": [],
                         "count": 0
                     },
                     metadata={"query": query, "source": "azure_search"}
                 ).to_dict()
             
-            # Analyze the retrieved documents
-            analysis = self._analyze_search_results(documents, query)
+            # Generate analysis using Jinja2 template and LLM
+            analysis_text = self.generate_analysis(query, documents)
+            
+            # Analyze the retrieved documents for statistics
+            stats_analysis = self._analyze_search_results(documents, query)
+            
+            # Combine LLM analysis with statistical analysis
+            stats_analysis["analysis"] = analysis_text  # Add LLM-generated analysis
             
             logger.info(f"✓ Sensor analysis complete: {len(documents)} documents processed")
             
             return AgentResponse(
                 agent_name=self.name,
                 success=True,
-                data=analysis,
+                data=stats_analysis,
                 metadata={
                     "documents_retrieved": len(documents),
+                    "document_count": len(documents),
                     "query": query,
                     "source": "azure_search"
                 }

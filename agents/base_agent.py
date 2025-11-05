@@ -8,6 +8,8 @@ from langchain_openai import AzureChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
+from jinja2 import Environment, FileSystemLoader, select_autoescape
+import os
 import config
 import logging
 
@@ -17,11 +19,33 @@ logger = logging.getLogger(__name__)
 class BaseAgent(ABC):
     """Abstract base class for all agents"""
     
-    def __init__(self, name: str, description: str, search_index: Optional[str] = None):
+    def __init__(self, name: str, description: str, search_index: Optional[str] = None, template_name: Optional[str] = None):
         self.name = name
         self.description = description
         self.llm = self._initialize_llm()
         self.search_client = self._initialize_search_client(search_index) if search_index else None
+        self.jinja_env = self._initialize_jinja_environment()  # Initialize BEFORE loading template
+        self.template = self._load_template(template_name) if template_name else None
+    
+    def _initialize_jinja_environment(self) -> Environment:
+        """Initialize Jinja2 environment for template loading"""
+        template_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'prompts')
+        return Environment(
+            loader=FileSystemLoader(template_dir),
+            autoescape=select_autoescape(['html', 'xml']),
+            trim_blocks=True,
+            lstrip_blocks=True
+        )
+    
+    def _load_template(self, template_name: str):
+        """Load Jinja2 template for agent"""
+        try:
+            template = self.jinja_env.get_template(template_name)
+            logger.info(f"✓ Loaded template: {template_name}")
+            return template
+        except Exception as e:
+            logger.error(f"Failed to load template {template_name}: {e}")
+            return None
     
     def _initialize_llm(self) -> AzureChatOpenAI:
         """Initialize Azure OpenAI LLM"""
@@ -101,6 +125,42 @@ class BaseAgent(ABC):
         except Exception as e:
             logger.error(f"Semantic search failed: {str(e)}", exc_info=True)
             return []
+    
+    def generate_analysis(self, query: str, documents: List[Dict[str, Any]]) -> str:
+        """
+        Generate analysis using Jinja2 template and LLM
+        
+        Args:
+            query: User query
+            documents: Retrieved documents from Azure Search
+            
+        Returns:
+            Analysis text from LLM
+        """
+        if not self.template:
+            logger.warning(f"No template loaded for {self.name}, skipping analysis generation")
+            return ""
+        
+        try:
+            # Render the template with query and documents
+            rendered_prompt = self.template.render(
+                query=query,
+                documents=documents,
+                document_count=len(documents)
+            )
+            
+            logger.info(f"→ Generating analysis using {self.name} template (prompt length: {len(rendered_prompt)} chars)")
+            
+            # Generate analysis using LLM
+            response = self.llm.invoke([HumanMessage(content=rendered_prompt)])
+            analysis = response.content
+            
+            logger.info(f"✓ Analysis generated ({len(analysis)} chars)")
+            return analysis
+            
+        except Exception as e:
+            logger.error(f"Failed to generate analysis: {e}", exc_info=True)
+            return ""
     
     @abstractmethod
     def process_query(self, query: str, **kwargs) -> Dict[str, Any]:
