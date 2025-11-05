@@ -1,0 +1,31 @@
+# RCA Copilot - AI-Powered Root Cause Analysis
+# Python Dependencies
+
+# Core Dependencies
+python-dotenv>=1.0.0
+
+# LangChain and OpenAI
+langchain>=0.1.0
+langchain-openai>=0.0.5
+langchain-community>=0.0.20
+openai>=1.10.0
+
+# Azure Services
+azure-search-documents>=11.4.0
+azure-core>=1.29.0
+azure-identity>=1.15.0
+
+# Data Processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# API and Web
+fastapi>=0.109.0
+uvicorn>=0.27.0
+requests>=2.31.0
+httpx>=0.26.0
+redis>=5.0.0
+
+# Utilities
+pydantic>=2.5.0
+python-dateutil>=2.8.2
