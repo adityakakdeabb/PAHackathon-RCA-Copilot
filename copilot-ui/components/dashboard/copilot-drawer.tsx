@@ -119,9 +119,26 @@ export function CopilotDrawer({ open, onOpenChange, initialAlert }: CopilotDrawe
           `;
           
           const button = document.querySelector('button[onclick="window.createWorkItem()"]');
+          let id = ""
           if (button && button.parentNode) {
         button.parentNode.insertBefore(banner.firstElementChild!, button.nextSibling);
         button.remove();
+
+        // Query the agent message to get the id of its parent message
+        const agentMessage = button.closest('.message');
+        if (agentMessage) {
+          id = agentMessage.id;
+          let innerHtml = agentMessage.innerHTML;
+          console.log("Inner HTML:", innerHtml);
+          const assistantMessage: Message = {
+            id: id,
+          role: "assistant",
+          content: innerHtml,
+      }
+            setMessages((prev) => [...prev, assistantMessage])
+        }
+
+
           }
         };
       }
@@ -152,12 +169,36 @@ export function CopilotDrawer({ open, onOpenChange, initialAlert }: CopilotDrawe
     }
   }
 
+  // Static hardcoded responses for quick action buttons (no API calls made for these)
+  const staticQuickActionResponses: Record<string, string> = {
+    "Ask RCA": `### Root Cause Hypothesis (Multi-Source Correlation)\n\n**Primary emerging issues** combine thermal stress, vibration escalation, and pressure instability across multiple machines. Data points:\n\n- **Live Alerts (Critical / High)**:\n  - MCH_012 – High Temperature spike (>90°C) indicates impaired cooling airflow.\n  - MCH_021 – Motor Overload (current >118A) suggests mechanical resistance / bearing degradation.\n  - MCH_045 – Unexpected shutdown triggered by vibration safety relay → acute mechanical imbalance.\n  - MCH_030 / MCH_034 – High pressure / critical temperature excursions under load.\n\n- **Sensor Trends (sample highlights)**:\n  - Repeated critical temperature excursions: MCH_034 (≥89°C), MCH_046, MCH_005, MCH_039, MCH_030.\n  - Critical vibration bursts: MCH_032 (late cycle), MCH_030, MCH_045, MCH_035, MCH_002.\n  - Pressure spikes/drops: MCH_043 & MCH_050 (≥5.8 bar), drop in MCH_034 (2.1 bar alert) suggests sealing / leakage onset.\n\n- **Operator Reports (Critical / Investigating)**:\n  - Recurrent multi-symptom machines: MCH_014 (smoke + delays), MCH_047 (pressure fluctuation), MCH_030 (oil leakage + vibration), MCH_009 (auto-shutdown + temperature).\n\n- **Maintenance Logs (patterns)**:\n  - Frequent emergency/corrective interventions for: MCH_032, MCH_030, MCH_010, MCH_014, MCH_018.\n  - Repeated actions: lubrication + alignment + bearing replacement → progressive mechanical wear & thermal inefficiency.\n  - Gearbox & cooling subsystem dominate high-downtime events (≥6h).\n\n**Likely Root Cause Cluster:**\n1. Thermal load + impaired cooling (fan belt wear / exchanger fouling) → elevated temperatures → friction rise.\n2. Mechanical imbalance (bearing wear / misalignment) → vibration surges → protective trips (e.g., MCH_045).\n3. Secondary pressure instability (valve seating & hydraulic compensation lag) under thermal + vibration stress.\n\n**Recommended Next Actions:**\n- Prioritize thermal & vibration triage: MCH_012, MCH_021, MCH_030, MCH_045.\n- Combined cooling path inspection + vibration baseline re-calibration.\n- Predictive audit: correlate time clusters of critical temperature + vibration ≥10 mm/s for pre-shutdown risk.\n- Teardown scheduling for assets with >2 emergency maint. events (MCH_030, MCH_032, MCH_014).\n\n**Confidence:** Medium-high (multi-source corroboration).\n\nAsk for a machine-specific deep dive or prevention playbook if needed.`,
+    "Summarize Alerts": `### Live Alerts Summary\n\n**Totals (10 alerts):**\n- Critical: 3 (ALRT_001, ALRT_005, ALRT_010)\n- High: 3 (ALRT_002, ALRT_004, ALRT_008)\n- Medium: 3 (ALRT_003, ALRT_006, ALRT_009)\n- Low: 1 (ALRT_007)\n\n**Status Breakdown:** Open: 7 | Investigating: 3 | Closed: 0\n\n**Immediate Attention:**\n- MCH_012 – Temperature spike >90°C (cooling failure risk)\n- MCH_021 – Motor overload (repeated protection trips)\n- MCH_045 – Unexpected shutdown (vibration relay)\n\n**Emerging Risks (Investigating):**\n- Oil contamination (MCH_042) → early wear pathway\n- Sensor drift (MCH_002) → calibration integrity risk\n\n**Pattern:** Escalating thermal + vibration combination with zero resolved closures → backlog pressure increasing.\n\nAsk for filtered view (e.g. only Critical Open) if needed.`,
+    "Sensor Trend": `### Sensor Trend Overview (Observed Window)\n\n**Temperature Spikes:**\n- Critical temps (≥82–90°C): MCH_034, MCH_046, MCH_005, MCH_039, MCH_030. Afternoon/evening clustering (≈14:00–19:00) → thermal accumulation / reduced cooling efficiency.\n\n**Vibration Escalation:**\n- Critical bursts (≥10 mm/s): MCH_045 (10.92), MCH_020 (11.29), MCH_005 (11.7), MCH_032 (11.91), MCH_030 (11.67), MCH_035 (10.54).\n- Late-cycle intensification suggests thermal expansion driving alignment drift.\n\n**Pressure Instability:**\n- Spikes: MCH_043 (5.84), MCH_048 (5.8), MCH_050 (5.27), MCH_030 (5.53).\n- Local drop event tied to alert for MCH_034 (2.1 bar) → valve seating / leakage suspicion.\n\n**Correlated Stress Assets:** MCH_030, MCH_005, MCH_034 show BOTH critical vibration & temperature → high failure probability.\n\n**Suggested Monitoring Rule:**\nRisk Score = (Critical Temp Count × 2) + (Critical Vibration Count × 1.5) + (Pressure anomalies). Escalate if score > 6 within 6h.\n\nI can draft a scoring function if desired.`,
+    "Critical Machines": `### Critical / High-Risk Machines\n\n| Machine | Reason | Data Sources | Suggested Action |\n|---------|--------|-------------|------------------|\n| MCH_030 | Pressure & vibration critical; repeated emergency maint. | Alerts, Sensors, Maintenance | Coupling & valve integrity inspection |\n| MCH_012 | High temp alert + bearing service history | Alerts, Maintenance | Cooling airflow audit + thermal scan |\n| MCH_021 | Motor overload + alignment interventions | Alerts, Maintenance | Torque / current signature analysis |\n| MCH_045 | Shutdown via vibration relay; long downtime events | Alerts, Sensors, Maintenance | Vibration spectrum & mounting review |\n| MCH_034 | Temp & pressure variability; diagnostics repeat | Sensors, Maintenance | Heat exchanger cleaning + valve calibration |\n| MCH_032 | Multiple emergency maint.; late-cycle vibration | Sensors, Maintenance | Gearbox oil analysis + realignment |\n| MCH_014 | Smoke + corrective logs; multi-component wear | Operator, Maintenance | Bearing wear inspection + lubrication QA |\n| MCH_046 | Critical temperature + high downtime corrective tasks | Sensors, Maintenance | Hydraulic circuit & cooling integrity review |\n| MCH_005 | Critical temp + vibration spikes | Sensors | Cooling & lubrication path verification |\n\n**Priority Tier 1:** MCH_030, MCH_012, MCH_045, MCH_021\n**Tier 2:** MCH_034, MCH_032, MCH_014, MCH_046\n\nRequest remediation playbook or export if needed.`,
+  }
+
   const quickActions = [
-    { label: "Ask RCA", action: "Ask RCA: What is the root cause?" },
-    { label: "Summarize Alerts", action: "Summarize alerts: Give me an overview" },
-    { label: "Sensor Trend", action: "Explain sensor trend: Analyze recent patterns" },
-    { label: "Critical Machines", action: "List critical machines that need attention" },
+    { label: "Ask RCA", action: "Ask RCA: What is the root cause?", static: true },
+    { label: "Summarize Alerts", action: "Summarize alerts: Give me an overview", static: true },
+    { label: "Sensor Trend", action: "Explain sensor trend: Analyze recent patterns", static: true },
+    { label: "Critical Machines", action: "List critical machines that need attention", static: true },
   ]
+
+  const handleStaticQuickAction = async (label: string) => {
+    const md = staticQuickActionResponses[label]
+    if (!md) return
+    const html = await marked.parse(md, { gfm: true, breaks: true })
+    const assistantMessage: Message = {
+      id: (Date.now() + 1).toString(),
+      role: "assistant",
+      content: html,
+    }
+    setMessages((prev) => [
+      ...prev,
+      { id: Date.now().toString(), role: "user", content: label },
+      assistantMessage,
+    ])
+  }
 
   if (!open) return null
 
@@ -194,7 +235,7 @@ export function CopilotDrawer({ open, onOpenChange, initialAlert }: CopilotDrawe
                 {msg.role === "user" ? (
                   msg.content
                 ) : (
-                  <div dangerouslySetInnerHTML={{ __html: msg.content }} />
+                  <div id={msg.id} dangerouslySetInnerHTML={{ __html: msg.content }} />
                 )}
               </div>
             </div>
@@ -212,25 +253,23 @@ export function CopilotDrawer({ open, onOpenChange, initialAlert }: CopilotDrawe
           <div ref={messagesEnd} />
         </div>
 
-        {/* Quick Actions */}
-        {messages.length === 1 && (
-          <div className="px-4 py-3 border-t border-border space-y-2">
-            <p className="text-xs text-muted-foreground font-medium">Quick actions:</p>
-            <div className="grid grid-cols-2 gap-2">
-              {quickActions.map((action) => (
-                <Button
-                  key={action.label}
-                  variant="outline"
-                  size="sm"
-                  className="text-xs bg-transparent"
-                  onClick={() => handleSendMessage(action.action)}
-                >
-                  {action.label}
-                </Button>
-              ))}
-            </div>
+        {/* Quick Actions (persist after first use) */}
+        <div className="px-4 py-3 border-t border-border space-y-2">
+          <p className="text-xs text-muted-foreground font-medium">Quick actions:</p>
+          <div className="grid grid-cols-2 gap-2">
+            {quickActions.map((action) => (
+              <Button
+                key={action.label}
+                variant="outline"
+                size="sm"
+                className="text-xs bg-transparent"
+                onClick={() => action.static ? handleStaticQuickAction(action.label) : handleSendMessage(action.action)}
+              >
+                {action.label}
+              </Button>
+            ))}
           </div>
-        )}
+        </div>
 
         {/* Input */}
         <div className="p-4 border-t border-border space-y-3">
