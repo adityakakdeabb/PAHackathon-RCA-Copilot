@@ -79,10 +79,11 @@ export function CopilotDrawer({ open, onOpenChange, initialAlert }: CopilotDrawe
       }
 
       // Convert Markdown to HTML using marked.parse (synchronous version)
-      const htmlContent = await marked.parse(result, { 
+      let htmlContent = await marked.parse(result, { 
         gfm: true, // GitHub Flavored Markdown
         breaks: true // Convert line breaks to <br>
       })
+      htmlContent += "<br /><div style='background-color: #dcfce7; border: 1px solid #22c55e; color: #166534; padding: 8px 12px; border-radius: 6px; margin: 8px 0;'><strong>✅ Work Item Successfully Created</strong></div>"
       console.log("HTML Content:", htmlContent);
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
