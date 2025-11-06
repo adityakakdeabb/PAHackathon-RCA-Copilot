@@ -1,6 +1,7 @@
 "use client"
-import { Menu, Settings, Filter, Bot, Zap } from "lucide-react"
+import { Menu, Settings, Filter, Bot } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import Image from "next/image"
 
 interface HeaderProps {
   onCopilotClick: () => void
@@ -11,9 +12,7 @@ export function Header({ onCopilotClick }: HeaderProps) {
     <header className="sticky top-0 z-40 bg-card border-b border-border shadow-sm">
       <div className="flex items-center justify-between px-6 py-4">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-gradient-to-br from-primary via-secondary to-accent rounded-lg flex items-center justify-center shadow-lg animate-pulse">
-            <Zap className="text-primary-foreground font-bold text-lg w-6 h-6" />
-          </div>
+          <Image src="/logo.png" alt="RCA Copilot Logo" width={40} height={40} className="object-contain" />
           <h1 className="text-xl font-bold text-foreground">RCA Copilot Dashboard</h1>
         </div>
 
