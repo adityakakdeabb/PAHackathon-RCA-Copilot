@@ -83,7 +83,48 @@ export function CopilotDrawer({ open, onOpenChange, initialAlert }: CopilotDrawe
         gfm: true, // GitHub Flavored Markdown
         breaks: true // Convert line breaks to <br>
       })
-      htmlContent += "<br /><div style='background-color: #dcfce7; border: 1px solid #22c55e; color: #166534; padding: 8px 12px; border-radius: 6px; margin: 8px 0;'><strong>✅ Work Item Successfully Created</strong></div>"
+      // Add a button to create work item instead of automatically adding the banner
+      const createWorkItemButton = `
+        <div style="margin: 12px 0;">
+          <button 
+        onclick="window.createWorkItem()"
+        style="
+          background-color: #3b82f6; 
+          color: white; 
+          border: none; 
+          padding: 8px 16px; 
+          border-radius: 6px; 
+          cursor: pointer;
+          font-size: 14px;
+          font-weight: 500;
+        "
+        onmouseover="this.style.backgroundColor='#2563eb'"
+        onmouseout="this.style.backgroundColor='#3b82f6'"
+          >
+        Create Work Item
+          </button>
+        </div>
+      `;
+      
+      htmlContent += createWorkItemButton;
+
+      // Add global function to handle work item creation
+      if (typeof window !== 'undefined') {
+        (window as any).createWorkItem = () => {
+          const banner = document.createElement('div');
+          banner.innerHTML = `
+        <div style='background-color: #dcfce7; border: 1px solid #22c55e; color: #166534; padding: 8px 12px; border-radius: 6px; margin: 8px 0;'>
+          <strong>✅ Work Item Successfully Created</strong>
+        </div>
+          `;
+          
+          const button = document.querySelector('button[onclick="window.createWorkItem()"]');
+          if (button && button.parentNode) {
+        button.parentNode.insertBefore(banner.firstElementChild!, button.nextSibling);
+        button.remove();
+          }
+        };
+      }
       console.log("HTML Content:", htmlContent);
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
