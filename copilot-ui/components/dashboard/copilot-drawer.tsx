@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { X, Send, Loader } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { askCopilot, getChatResult } from "@/lib/api"
+import { marked } from 'marked'
 
 interface CopilotDrawerProps {
   open: boolean
@@ -62,38 +64,50 @@ export function CopilotDrawer({ open, onOpenChange, initialAlert }: CopilotDrawe
     setInput("")
     setLoading(true)
 
-    // Simulate API call with delay
-    setTimeout(() => {
-      const responses: Record<string, string> = {
-        "ask rca":
-          "Based on the available data, the root cause analysis suggests: 1) Check sensor calibration, 2) Review recent maintenance logs, 3) Correlate with operator reports.",
-        "summarize alerts":
-          "Current alert summary: 3 Critical, 5 High priority, 2 Medium priority. Most common: Temperature fluctuations in Machine-02.",
-        "explain sensor trend":
-          "Sensor trend shows gradual increase over the past 6 hours. This may indicate wear or calibration drift. Recommend preventive maintenance.",
-        "list critical machines":
-          "Critical machines: Machine-02 (3 alerts), Machine-05 (2 alerts), Machine-08 (1 alert). Machine-02 requires immediate attention.",
+    try {
+      // Send question to /chat endpoint
+      const askResponse = await askCopilot(messageText)
+      
+      if (!askResponse.success) {
+        throw new Error(askResponse.error || 'Failed to send question')
       }
 
-      let response =
-        "I received your request. Please provide more specific details or use one of the quick actions below."
+      const result = askResponse.data
 
-      for (const [key, value] of Object.entries(responses)) {
-        if (messageText.toLowerCase().includes(key)) {
-          response = value
-          break
-        }
+      if (!result) {
+        throw new Error('Failed to get response from copilot')
       }
 
+      // Convert Markdown to HTML using marked.parse (synchronous version)
+      const htmlContent = await marked.parse(result, { 
+        gfm: true, // GitHub Flavored Markdown
+        breaks: true // Convert line breaks to <br>
+      })
+      console.log("HTML Content:", htmlContent);
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: response,
+        content: htmlContent,
       }
 
       setMessages((prev) => [...prev, assistantMessage])
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to get response from copilot",
+        variant: "destructive",
+      })
+
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: "I apologize, but I encountered an error processing your request. Please try again.",
+      }
+
+      setMessages((prev) => [...prev, errorMessage])
+    } finally {
       setLoading(false)
-    }, 500)
+    }
   }
 
   const quickActions = [
@@ -131,11 +145,15 @@ export function CopilotDrawer({ open, onOpenChange, initialAlert }: CopilotDrawe
           {messages.map((msg) => (
             <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
               <div
-                className={`max-w-xs rounded-lg px-4 py-2 text-sm ${
+                className={`max-w-xs rounded-lg px-4 py-2 text-sm prose prose-sm ${
                   msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted text-foreground"
                 }`}
               >
-                {msg.content}
+                {msg.role === "user" ? (
+                  msg.content
+                ) : (
+                  <div dangerouslySetInnerHTML={{ __html: msg.content }} />
+                )}
               </div>
             </div>
           ))}

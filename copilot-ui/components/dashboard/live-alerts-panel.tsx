@@ -4,9 +4,11 @@ import { useState, useMemo } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { RefreshCw, Download, Info, Zap, AlertTriangle, CheckCircle } from "lucide-react"
+import { RefreshCw, Download, Info, Zap, AlertTriangle, CheckCircle, Loader } from "lucide-react"
 import { useMockData } from "@/lib/mock-data"
 import { DataTable } from "./data-table"
+import { getRCA } from "@/lib/api"
+import { useToast } from "@/hooks/use-toast"
 
 interface LiveAlertsPanelProps {
   onGenerateRCA: (alert: any) => void
@@ -16,6 +18,8 @@ export function LiveAlertsPanel({ onGenerateRCA }: LiveAlertsPanelProps) {
   const { alerts } = useMockData()
   const [selectedSeverity, setSelectedSeverity] = useState<string>("all")
   const [selectedStatus, setSelectedStatus] = useState<string>("all")
+  const [loading, setLoading] = useState<string | null>(null)
+  const { toast } = useToast()
 
   const filteredData = useMemo(() => {
     return alerts.filter((item) => {
@@ -75,21 +79,42 @@ export function LiveAlertsPanel({ onGenerateRCA }: LiveAlertsPanelProps) {
       header: "Action",
       accessor: "alert_id",
       width: "12%",
-      render: (alertId: string) => (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            const alert = filteredData.find((a) => a.alert_id === alertId)
-            if (alert) onGenerateRCA(alert)
-          }}
-          title="Generate RCA for this alert"
-          className="hover:bg-primary/10 hover:border-primary/40 hover:text-primary transition-all duration-200"
-        >
-          <Zap className="w-3 h-3 mr-1" />
-          RCA
-        </Button>
-      ),
+      render: (alertId: string) => {
+        const alert = filteredData.find((a) => a.alert_id === alertId);
+        return (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              if (!alert) return;
+              
+              setLoading(alertId);
+              const result = await getRCA(alert.alert_description);
+              setLoading(null);
+
+              if (result.success && result.data) {
+                onGenerateRCA(alert);
+              } else {
+                toast({
+                  title: "Error generating RCA",
+                  description: result.error || "Failed to generate RCA. Please try again.",
+                  variant: "destructive",
+                });
+              }
+            }}
+            disabled={loading === alertId}
+            title="Generate RCA for this alert"
+            className="hover:bg-primary/10 hover:border-primary/40 hover:text-primary transition-all duration-200"
+          >
+            {loading === alertId ? (
+              <Loader className="w-3 h-3 mr-1 animate-spin" />
+            ) : (
+              <Zap className="w-3 h-3 mr-1" />
+            )}
+            RCA
+          </Button>
+        );
+      },
     },
   ]
 
